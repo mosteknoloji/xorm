@@ -57,6 +57,7 @@ type Statement struct {
 	IsDistinct    bool
 	allUseBool    bool
 	checkVersion  bool
+	unscoped      bool
 	mustColumnMap map[string]bool
 	inColumns     map[string]*inParam
 	incrColumns   map[string]incrParam
@@ -91,6 +92,7 @@ func (statement *Statement) Init() {
 	statement.useAllCols = false
 	statement.mustColumnMap = make(map[string]bool)
 	statement.checkVersion = true
+	statement.unscoped = false
 	statement.inColumns = make(map[string]*inParam)
 	statement.incrColumns = make(map[string]incrParam)
 	statement.decrColumns = make(map[string]decrParam)
@@ -286,6 +288,9 @@ func buildUpdates(engine *Engine, table *core.Table, bean interface{},
 		if !includeAutoIncr && col.IsAutoIncrement {
 			continue
 		}
+		if col.IsDeleted {
+			continue
+		}
 
 		if engine.dialect.DBType() == core.MSSQL && col.SQLType.Name == core.Text {
 			continue
@@ -465,7 +470,7 @@ func buildUpdates(engine *Engine, table *core.Table, bean interface{},
 // Auto generating conditions according a struct
 func buildConditions(engine *Engine, table *core.Table, bean interface{},
 	includeVersion bool, includeUpdated bool, includeNil bool,
-	includeAutoIncr bool, allUseBool bool, useAllCols bool,
+	includeAutoIncr bool, allUseBool bool, useAllCols bool, unscoped bool,
 	mustColumnMap map[string]bool) ([]string, []interface{}) {
 
 	colNames := make([]string, 0)
@@ -488,6 +493,10 @@ func buildConditions(engine *Engine, table *core.Table, bean interface{},
 		if err != nil {
 			engine.LogError(err)
 			continue
+		}
+
+		if col.IsDeleted && !unscoped { // tag "deleted" is enabled
+			colNames = append(colNames, fmt.Sprintf("%v IS NULL", engine.Quote(col.Name)))
 		}
 
 		fieldValue := *fieldValuePtr
@@ -877,7 +886,7 @@ func (statement *Statement) OrderBy(order string) *Statement {
 	if statement.OrderStr != "" {
 		statement.OrderStr += ", "
 	}
-	statement.OrderStr = order
+	statement.OrderStr += order
 	return statement
 }
 
@@ -923,6 +932,12 @@ func (statement *Statement) GroupBy(keys string) *Statement {
 // Generate "Having conditions" statement
 func (statement *Statement) Having(conditions string) *Statement {
 	statement.HavingStr = fmt.Sprintf("HAVING %v", conditions)
+	return statement
+}
+
+// Always disable struct tag "deleted"
+func (statement *Statement) Unscoped() *Statement {
+	statement.unscoped = true
 	return statement
 }
 
@@ -1030,7 +1045,7 @@ func (statement *Statement) genGetSql(bean interface{}) (string, []interface{}) 
 
 	colNames, args := buildConditions(statement.Engine, table, bean, true, true,
 		false, true, statement.allUseBool, statement.useAllCols,
-		statement.mustColumnMap)
+		statement.unscoped, statement.mustColumnMap)
 
 	statement.ConditionStr = strings.Join(colNames, " "+statement.Engine.dialect.AndStr()+" ")
 	statement.BeanArgs = args
@@ -1076,7 +1091,8 @@ func (statement *Statement) genCountSql(bean interface{}) (string, []interface{}
 	statement.RefTable = table
 
 	colNames, args := buildConditions(statement.Engine, table, bean, true, true, false,
-		true, statement.allUseBool, statement.useAllCols, statement.mustColumnMap)
+		true, statement.allUseBool, statement.useAllCols,
+		statement.unscoped, statement.mustColumnMap)
 
 	statement.ConditionStr = strings.Join(colNames, " "+statement.Engine.Dialect().AndStr()+" ")
 	statement.BeanArgs = args
@@ -1102,10 +1118,10 @@ func (statement *Statement) genSelectSql(columnStr string) (a string) {
 
 	var top string
 	var mssqlCondi string
-	var orderBy string
+	/*var orderBy string
 	if statement.OrderStr != "" {
 		orderBy = fmt.Sprintf(" ORDER BY %v", statement.OrderStr)
-	}
+	}*/
 	statement.processIdParam()
 	var whereStr string
 	if statement.WhereStr != "" {
@@ -1139,8 +1155,8 @@ func (statement *Statement) genSelectSql(columnStr string) (a string) {
 					column = statement.RefTable.ColumnsSeq()[0]
 				}
 			}
-			mssqlCondi = fmt.Sprintf("(%s NOT IN (SELECT TOP %d %s%s%s%s))",
-				column, statement.Start, column, fromStr, whereStr, orderBy)
+			mssqlCondi = fmt.Sprintf("(%s NOT IN (SELECT TOP %d %s%s%s))",
+				column, statement.Start, column, fromStr, whereStr)
 		}
 	}
 
