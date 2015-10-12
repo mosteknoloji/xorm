@@ -680,7 +680,7 @@ func (session *Session) cacheGet(bean interface{}, sqlStr string, args ...interf
 
 	cacher := session.Engine.getCacher2(session.Statement.RefTable)
 	tableName := session.Statement.TableName()
-	session.Engine.LogDebug("[cacheGet] find sql:", newsql, args)
+	session.Engine.logCache("[Get] find sql:", newsql, args)
 	ids, err := core.GetCacheSql(cacher, tableName, newsql, args)
 	table := session.Statement.RefTable
 	if err != nil {
@@ -716,19 +716,19 @@ func (session *Session) cacheGet(bean interface{}, sqlStr string, args ...interf
 		}
 
 		ids = []core.PK{pk}
-		session.Engine.LogDebug("[cacheGet] cache ids:", newsql, ids)
+		session.Engine.logCache("[Get] cache ids:", newsql, ids)
 		err = core.PutCacheSql(cacher, ids, tableName, newsql, args)
 		if err != nil {
 			return false, err
 		}
 	} else {
-		session.Engine.LogDebug("[cacheGet] cache hit sql:", newsql)
+		session.Engine.logCache("[Get] cache hit sql:", newsql)
 	}
 
 	if len(ids) > 0 {
 		structValue := reflect.Indirect(reflect.ValueOf(bean))
 		id := ids[0]
-		session.Engine.LogDebug("[cacheGet] get bean:", tableName, id)
+		session.Engine.logCache("[Get] get bean:", tableName, id)
 		sid, err := id.ToString()
 		if err != nil {
 			return false, err
@@ -750,10 +750,10 @@ func (session *Session) cacheGet(bean interface{}, sqlStr string, args ...interf
 				return has, err
 			}
 
-			session.Engine.LogDebug("[cacheGet] cache bean:", tableName, id, cacheBean)
+			session.Engine.logCache("[Get] cache bean:", tableName, id, cacheBean)
 			cacher.PutBean(tableName, sid, cacheBean)
 		} else {
-			session.Engine.LogDebug("[cacheGet] cache hit bean:", tableName, id, cacheBean)
+			session.Engine.logCache("[Get] cache hit bean:", tableName, id, cacheBean)
 			has = true
 		}
 		structValue.Set(reflect.Indirect(reflect.ValueOf(cacheBean)))
@@ -794,7 +794,7 @@ func (session *Session) cacheFind(t reflect.Type, sqlStr string, rowsSlicePtr in
 		for rows.Next() {
 			i++
 			if i > 500 {
-				session.Engine.LogDebug("[cacheFind] ids length > 500, no cache")
+				session.Engine.logCache("[Find] ids length > 500, no cache")
 				return ErrCacheFailed
 			}
 			var res = make([]string, len(table.PrimaryKeys))
@@ -823,13 +823,13 @@ func (session *Session) cacheFind(t reflect.Type, sqlStr string, rowsSlicePtr in
 
 		tableName := session.Statement.TableName()
 
-		session.Engine.LogDebug("[cacheFind] cache sql:", ids, tableName, newsql, args)
+		session.Engine.logCache("[Find] cache sql:", ids, tableName, newsql, args)
 		err = core.PutCacheSql(cacher, ids, tableName, newsql, args)
 		if err != nil {
 			return err
 		}
 	} else {
-		session.Engine.LogDebug("[cacheFind] cache hit sql:", newsql, args)
+		session.Engine.logCache("[Find] cache hit sql:", newsql, args)
 	}
 
 	sliceValue := reflect.Indirect(reflect.ValueOf(rowsSlicePtr))
@@ -848,7 +848,7 @@ func (session *Session) cacheFind(t reflect.Type, sqlStr string, rowsSlicePtr in
 			ides = append(ides, id)
 			ididxes[sid] = idx
 		} else {
-			session.Engine.LogDebug("[cacheFind] cache hit bean:", tableName, id, bean)
+			session.Engine.logCache("[Find] cache hit bean:", tableName, id, bean)
 
 			pk := session.Engine.IdOf(bean)
 			xid, err := pk.ToString()
@@ -857,7 +857,7 @@ func (session *Session) cacheFind(t reflect.Type, sqlStr string, rowsSlicePtr in
 			}
 
 			if sid != xid {
-				session.Engine.LogError("[cacheFind] error cache", xid, sid, bean)
+				session.Engine.logCache("[Find] error cache", xid, sid, bean)
 				return ErrCacheFailed
 			}
 			temps[idx] = bean
@@ -908,7 +908,7 @@ func (session *Session) cacheFind(t reflect.Type, sqlStr string, rowsSlicePtr in
 			}
 
 			temps[ididxes[sid]] = bean
-			session.Engine.LogDebug("[cacheFind] cache bean:", tableName, id, bean, temps)
+			session.Engine.logCache("[Find] cache bean:", tableName, id, bean, temps)
 			cacher.PutBean(tableName, sid, bean)
 		}
 	}
@@ -916,7 +916,7 @@ func (session *Session) cacheFind(t reflect.Type, sqlStr string, rowsSlicePtr in
 	for j := 0; j < len(temps); j++ {
 		bean := temps[j]
 		if bean == nil {
-			session.Engine.LogWarn("[cacheFind] cache no hit:", tableName, ids[j], temps)
+			session.Engine.logCacheWarn("[Find] cache no hit:", tableName, ids[j], temps)
 			// return errors.New("cache error") // !nashtsai! no need to return error, but continue instead
 			continue
 		}
@@ -1213,7 +1213,7 @@ func (session *Session) Find(rowsSlicePtr interface{}, condiBean ...interface{})
 		session.Statement.BeanArgs = args
 	} else {
 		// !oinume! Add "<col> IS NULL" to WHERE whatever condiBean is given.
-		// See https://github.com/go-xorm/xorm/issues/179
+		// See https://github.com/coscms/xorm/issues/179
 		if col := table.DeletedColumn(); col != nil && !session.Statement.unscoped { // tag "deleted" is enabled
 			session.Statement.ConditionStr = fmt.Sprintf("(%v IS NULL or %v = '0001-01-01 00:00:00') ",
 				session.Engine.Quote(col.Name), session.Engine.Quote(col.Name))
@@ -1271,7 +1271,7 @@ func (session *Session) Find(rowsSlicePtr interface{}, condiBean ...interface{})
 				return err
 			}
 			err = nil // !nashtsai! reset err to nil for ErrCacheFailed
-			session.Engine.LogWarn("Cache Find Failed")
+			session.Engine.logCacheWarn("Find Failed")
 		}
 	}
 
@@ -3012,11 +3012,11 @@ func (session *Session) value2Interface(col *core.Column, fieldValue reflect.Val
 
 			fieldTable := session.Engine.autoMapType(fieldValue)
 			//if fieldTable, ok := session.Engine.Tables[fieldValue.Type()]; ok {
-				if len(fieldTable.PrimaryKeys) == 1 {
-					pkField := reflect.Indirect(fieldValue).FieldByName(fieldTable.PKColumns()[0].FieldName)
-					return pkField.Interface(), nil
-				}
-				return 0, fmt.Errorf("no primary key for col %v", col.Name)
+			if len(fieldTable.PrimaryKeys) == 1 {
+				pkField := reflect.Indirect(fieldValue).FieldByName(fieldTable.PKColumns()[0].FieldName)
+				return pkField.Interface(), nil
+			}
+			return 0, fmt.Errorf("no primary key for col %v", col.Name)
 			//}
 		}
 
@@ -3399,7 +3399,7 @@ func (session *Session) cacheInsert(tables ...string) error {
 	cacher := session.Engine.getCacher2(table)
 
 	for _, t := range tables {
-		session.Engine.LogDebug("[cache] clear sql:", t)
+		session.Engine.logCache("clear sql:", t)
 		cacher.ClearIds(t)
 	}
 
@@ -3419,7 +3419,7 @@ func (session *Session) cacheUpdate(sqlStr string, args ...interface{}) error {
 	for _, filter := range session.Engine.dialect.Filters() {
 		newsql = filter.Do(newsql, session.Engine.dialect, session.Statement.RefTable)
 	}
-	session.Engine.LogDebug("[cacheUpdate] new sql", oldhead, newsql)
+	session.Engine.logCache("[Update] new sql", oldhead, newsql)
 
 	var nStart int
 	if len(args) > 0 {
@@ -3433,7 +3433,7 @@ func (session *Session) cacheUpdate(sqlStr string, args ...interface{}) error {
 	table := session.Statement.RefTable
 	cacher := session.Engine.getCacher2(table)
 	tableName := session.Statement.TableName()
-	session.Engine.LogDebug("[cacheUpdate] get cache sql", newsql, args[nStart:])
+	session.Engine.logCache("[Update] get cache sql", newsql, args[nStart:])
 	ids, err := core.GetCacheSql(cacher, tableName, newsql, args[nStart:])
 	if err != nil {
 		rows, err := session.DB().Query(newsql, args[nStart:]...)
@@ -3466,7 +3466,7 @@ func (session *Session) cacheUpdate(sqlStr string, args ...interface{}) error {
 
 			ids = append(ids, pk)
 		}
-		session.Engine.LogDebug("[cacheUpdate] find updated id", ids)
+		session.Engine.logCache("[Update] find updated id", ids)
 	} /*else {
 	    session.Engine.LogDebug("[xorm:cacheUpdate] del cached sql:", tableName, newsql, args)
 	    cacher.DelIds(tableName, genSqlKey(newsql, args))
@@ -3497,7 +3497,7 @@ func (session *Session) cacheUpdate(sqlStr string, args ...interface{}) error {
 				} else if strings.Contains(colName, session.Engine.QuoteStr()) {
 					colName = strings.TrimSpace(strings.Replace(colName, session.Engine.QuoteStr(), "", -1))
 				} else {
-					session.Engine.LogDebug("[cacheUpdate] cannot find column", tableName, colName)
+					session.Engine.logCache("[Update] cannot find column", tableName, colName)
 					return ErrCacheFailed
 				}
 
@@ -3506,7 +3506,7 @@ func (session *Session) cacheUpdate(sqlStr string, args ...interface{}) error {
 					if err != nil {
 						session.Engine.LogError(err)
 					} else {
-						session.Engine.LogDebug("[cacheUpdate] set bean field", bean, colName, fieldValue.Interface())
+						session.Engine.logCache("[Update] set bean field", bean, colName, fieldValue.Interface())
 						if col.IsVersion && session.Statement.checkVersion {
 							fieldValue.SetInt(fieldValue.Int() + 1)
 						} else {
@@ -3514,16 +3514,15 @@ func (session *Session) cacheUpdate(sqlStr string, args ...interface{}) error {
 						}
 					}
 				} else {
-					session.Engine.LogErrorf("[cacheUpdate] ERROR: column %v is not table %v's",
-						colName, table.Name)
+					session.Engine.logCacheError("[Update] ERROR: column " + colName + " is not table " + table.Name + "'s")
 				}
 			}
 
-			session.Engine.LogDebug("[cacheUpdate] update cache", tableName, id, bean)
+			session.Engine.logCache("[Update] update cache", tableName, id, bean)
 			cacher.PutBean(tableName, sid, bean)
 		}
 	}
-	session.Engine.LogDebug("[cacheUpdate] clear cached table sql:", tableName)
+	session.Engine.logCache("[Update] clear cached table sql:", tableName)
 	cacher.ClearIds(tableName)
 	return nil
 }
@@ -3732,7 +3731,7 @@ func (session *Session) Update(bean interface{}, condiBean ...interface{}) (int6
 			closure(bean)
 		}
 		if processor, ok := interface{}(bean).(AfterUpdateProcessor); ok {
-			session.Engine.LogDebug("[event]", session.Statement.TableName(), " has after update processor")
+			session.Engine.logEvent(session.Statement.TableName(), " has after update processor")
 			processor.AfterUpdate()
 		}
 	} else {
@@ -3812,14 +3811,14 @@ func (session *Session) cacheDelete(sqlStr string, args ...interface{}) error {
 	}*/
 
 	for _, id := range ids {
-		session.Engine.LogDebug("[cacheDelete] delete cache obj", tableName, id)
+		session.Engine.logCache("[Delete] delete cache obj", tableName, id)
 		sid, err := id.ToString()
 		if err != nil {
 			return err
 		}
 		cacher.DelBean(tableName, sid)
 	}
-	session.Engine.LogDebug("[cacheDelete] clear cache sql", tableName)
+	session.Engine.logCache("[Delete] clear cache sql", tableName)
 	cacher.ClearIds(tableName)
 	return nil
 }

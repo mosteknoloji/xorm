@@ -22,6 +22,17 @@ import (
 	"github.com/go-xorm/core"
 )
 
+var DefaultShowLog []bool = []bool{true, true, true, true, true, true}
+
+const (
+	LOG_BASE = iota
+	LOG_SQL
+	LOG_CACHE
+	LOG_ETIME
+	LOG_EVENT
+	LOG_OTHER
+)
+
 // Engine is the major struct of xorm, it means a database manager.
 // Commonly, an application only need one engine
 type Engine struct {
@@ -49,6 +60,12 @@ type Engine struct {
 	TZLocation *time.Location
 
 	disableGlobalCache bool
+
+	showLog []bool
+}
+
+func (engine *Engine) Init() {
+	engine.showLog = DefaultShowLog
 }
 
 func (engine *Engine) SetLogger(logger core.ILogger) {
@@ -192,6 +209,50 @@ func (engine *Engine) Ping() error {
 	return session.Ping()
 }
 
+func (engine *Engine) LogTypeId(typ string) (tid int) {
+	switch typ {
+	case "cache":
+		tid = LOG_CACHE
+	case "time":
+		tid = LOG_ETIME
+	case "sql":
+		tid = LOG_SQL
+	case "event":
+		tid = LOG_EVENT
+	case "other":
+		tid = LOG_OTHER
+	default:
+		tid = LOG_BASE
+	}
+	return
+}
+
+func (engine *Engine) OpenLog(types ...string) {
+	if len(types) < 1 {
+		return
+	}
+	for _, typ := range types {
+		tid := engine.LogTypeId(typ)
+		engine.showLog[tid] = true
+		if typ == "sql" {
+			engine.ShowSQL = engine.showLog[tid]
+		}
+	}
+}
+
+func (engine *Engine) CloseLog(types ...string) {
+	if len(types) < 1 {
+		return
+	}
+	for _, typ := range types {
+		tid := engine.LogTypeId(typ)
+		engine.showLog[tid] = false
+		if typ == "sql" {
+			engine.ShowSQL = engine.showLog[tid]
+		}
+	}
+}
+
 // logging sql
 func (engine *Engine) logSQL(sqlStr string, sqlArgs ...interface{}) {
 	if engine.ShowSQL {
@@ -204,8 +265,44 @@ func (engine *Engine) logSQL(sqlStr string, sqlArgs ...interface{}) {
 	}
 }
 
+func (engine *Engine) logCache(args ...interface{}) {
+	if engine.showLog[LOG_CACHE] {
+		if len(args) > 0 {
+			args[0] = fmt.Sprintf("[cache] %v", args[0])
+		}
+		engine.LogDebug(args...)
+	}
+}
+
+func (engine *Engine) logCacheWarn(args ...interface{}) {
+	if engine.showLog[LOG_CACHE] {
+		if len(args) > 0 {
+			args[0] = fmt.Sprintf("[cache] %v", args[0])
+		}
+		engine.LogWarn(args...)
+	}
+}
+
+func (engine *Engine) logCacheError(args ...interface{}) {
+	if engine.showLog[LOG_CACHE] {
+		if len(args) > 0 {
+			args[0] = fmt.Sprintf("[cache] %v", args[0])
+		}
+		engine.LogError(args...)
+	}
+}
+
+func (engine *Engine) logEvent(args ...interface{}) {
+	if engine.showLog[LOG_EVENT] {
+		if len(args) > 0 {
+			args[0] = fmt.Sprintf("[event] %v", args[0])
+		}
+		engine.LogDebug(args...)
+	}
+}
+
 func (engine *Engine) LogSQLQueryTime(sqlStr string, args interface{}, executionBlock func() (*core.Stmt, *core.Rows, error)) (*core.Stmt, *core.Rows, error) {
-	if engine.ShowDebug {
+	if engine.ShowDebug && engine.showLog[LOG_ETIME] {
 		b4ExecTime := time.Now()
 		stmt, res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)
@@ -217,7 +314,7 @@ func (engine *Engine) LogSQLQueryTime(sqlStr string, args interface{}, execution
 }
 
 func (engine *Engine) LogSQLExecutionTime(sqlStr string, args interface{}, executionBlock func() (sql.Result, error)) (sql.Result, error) {
-	if engine.ShowDebug {
+	if engine.ShowDebug && engine.showLog[LOG_ETIME] {
 		b4ExecTime := time.Now()
 		res, err := executionBlock()
 		execDuration := time.Since(b4ExecTime)

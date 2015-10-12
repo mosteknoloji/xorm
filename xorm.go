@@ -87,7 +87,7 @@ func NewEngine(driverName string, dataSourceName string) (*Engine, error) {
 		Logger:        NewSimpleLogger(os.Stdout),
 		TZLocation:    time.Local,
 	}
-
+	engine.Init()
 	engine.dialect.SetLogger(engine.Logger)
 
 	engine.SetMapper(core.NewCacheMapper(new(core.SnakeMapper)))
