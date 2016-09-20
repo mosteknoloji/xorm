@@ -330,7 +330,7 @@ func (db *mssql) TableCheckSql(tableName string) (string, []interface{}) {
 
 func (db *mssql) GetColumns(tableName string) ([]string, map[string]*core.Column, error) {
 	args := []interface{}{}
-	s := `select a.name as name, b.name as ctype,a.max_length,a.precision,a.scale
+	s := `select a.name as name, b.name as ctype,a.max_length,a.precision,a.scale,a.is_nullable
 from sys.columns a left join sys.types b on a.user_type_id=b.user_type_id
 where a.object_id=object_id('` + tableName + `')`
 	db.LogSQL(s, args)
@@ -345,8 +345,9 @@ where a.object_id=object_id('` + tableName + `')`
 	colSeq := make([]string, 0)
 	for rows.Next() {
 		var name, ctype, precision, scale string
+		var isNullable bool
 		var maxLen int
-		err = rows.Scan(&name, &ctype, &maxLen, &precision, &scale)
+		err = rows.Scan(&name, &ctype, &maxLen, &precision, &scale, &isNullable)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -355,6 +356,7 @@ where a.object_id=object_id('` + tableName + `')`
 		col.Indexes = make(map[string]int)
 		col.Length = maxLen
 		col.Name = strings.Trim(name, "` ")
+		col.Nullable = isNullable
 
 		ct := strings.ToUpper(ctype)
 		switch ct {
